@@ -48,6 +48,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
+#include <std_msgs/String>
 
 typedef pcl::PointXYZI PointType;
 
@@ -121,6 +122,14 @@ float transformAftMapped[6] = {0};
 //last optimization states
 float transformLastMapped[6] = {0};
 
+// WINGTRA
+std::string timeSyncString{};
+
+void timeSyncHandler(const std_msgs::StringConstPtr& timeSync)
+{
+  std::cout << "TIME SYNC RECEIVED" << timeSync.data;
+  timeSyncString = timeSync.data;
+}
 double rad2deg(double radians)
 {
   return radians * 180.0 / M_PI;
@@ -369,11 +378,14 @@ void laserCloudSurfLastHandler(const sensor_msgs::PointCloud2ConstPtr& laserClou
 
 void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudFullRes2)
 {
+    std::cout << "Received point cloud " << laserCloudFullRes2->header.stamp.toSec();
     timeLaserCloudFullRes = laserCloudFullRes2->header.stamp.toSec();
 
     laserCloudFullRes->clear();
     laserCloudFullResColor->clear();
     pcl::fromROSMsg(*laserCloudFullRes2, *laserCloudFullRes);
+
+    // TODO HACK: Read out exact location from CSV here and update static var
 
     newLaserCloudFullRes = true;
 }
@@ -382,6 +394,9 @@ int main(int argc, char** argv)
 {
     ros::init(argc, argv, "laserMapping");
     ros::NodeHandle nh;
+
+    ros::Subscriber subSyncString = nh.subscribe<std_msgs::String>
+            ("/sync_string", 100, timeSyncHandler);
 
     ros::Subscriber subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>
             ("/laser_cloud_sharp", 100, laserCloudCornerLastHandler);
@@ -1012,6 +1027,7 @@ int main(int argc, char** argv)
                         matX = matP * matX2;
                     }
 
+                    // TODO HACK: Hack in our pose info somehow here
                     transformTobeMapped[0] += matX.at<float>(0, 0);
                     transformTobeMapped[1] += matX.at<float>(1, 0);
                     transformTobeMapped[2] += matX.at<float>(2, 0);
@@ -1028,7 +1044,7 @@ int main(int argc, char** argv)
                                 pow(matX.at<float>(4, 0) * 100, 2) +
                                 pow(matX.at<float>(5, 0) * 100, 2));
 
-                    if (deltaR < 0.05 && deltaT < 0.05) {
+                    if (deltaR < 0.05 && deltaT < 0.05) {  // TODO HACK: @50m the 0.05° still result in 4.5cm. We should decrease this threshold for more accurate results
                         break;
                     }
                 }

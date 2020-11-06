@@ -146,6 +146,8 @@ void laserCloudHandler_temp(const sensor_msgs::PointCloud2ConstPtr& laserCloudMs
 }
 void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
 {
+  std::cout << "Point cloud time: " << laserCloudMsg.header.stamps.sec << "." << laserCloudMsg.header.stamps.sec << " frame: " << laserCloudMsg.frame_id;
+
   pcl::PointCloud<PointType> laserCloudIn;
   pcl::fromROSMsg(*laserCloudMsg, laserCloudIn);
 
