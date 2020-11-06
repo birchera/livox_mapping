@@ -34,6 +34,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include <math.h>
+#include <fstream>
 
 #include <nav_msgs/Odometry.h>
 #include <opencv/cv.h>
@@ -126,19 +127,20 @@ float transformLastMapped[6] = {0};
 std::string timeSyncString{};
 std::vector<double*> positionData;
 int positionDataIterator{0};
-Eigen::Vector3f exactPosition{};
+Eigen::Vector3f exactPosition{0, 0, 0};
 std::vector<double*> attitudeData;
 int attitudeDataIterator{0};
-Eigen::Vector3f exactAttitude{};
+Eigen::Vector3f exactAttitude{0, 0, 0};
 
 // Load log position and interpolate based on timestamp
 void getAccuratePosition(const double time)
 {
+    const double time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
     for (int i = positionDataIterator; i < positionData.size() - 1; i++) {
-        if (positionData[i][0] < time) {
+        if (positionData[i][0] < time - time_offset) {
             const double interpolation = (time - positionData[i][0])/(positionData[i+1][0] - positionData[i][0]);
             for (int j = 1; j < 4; j++) {
-                exactPosition[j] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
+                exactPosition[j-1] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
             }
             positionDataIterator = i;
             return;
@@ -146,19 +148,57 @@ void getAccuratePosition(const double time)
     }
 }
 
-std::vector<double*> loadAccuratePositionData()
+void loadAccuratePositionData()
 {
     // TODO HACK: read CSV with position data
+    std::ifstream file("/home/wingtranaut/Documents/WingtraHackLidar/locations2.csv");
+
+    // Make sure the file is open
+    if(!file.is_open()) throw std::runtime_error("Could not open file");
+
+    // Helper vars
+    std::string line, colname;
+    double* val;
+
+    // Read data, line by line
+    while(std::getline(file, line))
+    {
+        // Create a stringstream of the current line
+        std::stringstream ss(line);
+        
+        // Keep track of the current column index
+        int colIdx = 0;
+        val = new double[4];
+        
+        // Extract each integer
+        while(ss >> val[colIdx]){
+            
+            // If the next token is a comma, ignore it and move on
+            if(ss.peek() == ',') ss.ignore();
+            
+            // Increment the column index
+            colIdx++;
+        }
+        val[0] = (val[0] - 1604690692476.00) / 1000.0;
+        positionData.push_back(val);
+    }
+
+    std::cout << "Loaded locations data: " << positionData.size() << std::endl;
+
+    // Close file
+    file.close();
 }
 
 // Load log position and interpolate based on timestamp
 void getAccurateAttitude(const double time)
 {
-    for (int i = positionDataIterator; i < attitudeData.size() - 1; i++) {
+    return; // This is skipped for now
+
+    for (int i = attitudeDataIterator; i < attitudeData.size() - 1; i++) {
         if (attitudeData[i][0] < time) {
             const double interpolation = (time - attitudeData[i][0])/(attitudeData[i+1][0] - attitudeData[i][0]);
             for (int j = 1; j < 4; j++) {
-                exactAttitude[j] = attitudeData[i][j] * interpolation + (1 - interpolation) * attitudeData[i+1][j];
+                exactAttitude[j-1] = attitudeData[i][j] * interpolation + (1 - interpolation) * attitudeData[i+1][j];
             }
             attitudeDataIterator = i;
             return;
@@ -166,15 +206,50 @@ void getAccurateAttitude(const double time)
     }
 }
 
-std::vector<double*> loadAccurateAttitudeData()
+void loadAccurateAttitudeData()
 {
-    // TODO HACK: read CSV with attitude data
+    // TODO HACK: read CSV with position data
+    return;  // This is skipped for now
+
+    std::ifstream file("");
+
+    // Make sure the file is open
+    if(!file.is_open()) throw std::runtime_error("Could not open file");
+
+    // Helper vars
+    std::string line, colname;
+    double* val;
+
+    // Read data, line by line
+    while(std::getline(file, line))
+    {
+        // Create a stringstream of the current line
+        std::stringstream ss(line);
+        
+        // Keep track of the current column index
+        int colIdx = 0;
+        val = new double[4];
+        
+        // Extract each integer
+        while(ss >> val[colIdx]){
+            
+            // If the next token is a comma, ignore it and move on
+            if(ss.peek() == ',') ss.ignore();
+            
+            // Increment the column index
+            colIdx++;
+        }
+        attitudeData.push_back(val);
+    }
+
+    // Close file
+    file.close();
 }
 
 void timeSyncHandler(const std_msgs::StringConstPtr& timeSync)
 {
   std::cout << "TIME SYNC RECEIVED" << timeSync->data << std::endl;
-  timeSyncString = timeSync->data;
+  timeSyncString = timeSync->data;  
 }
 double rad2deg(double radians)
 {
@@ -478,8 +553,8 @@ int main(int argc, char** argv)
     std::vector<float> pointSearchSqDis;
     PointType pointOri, pointSel, coeff;
 
-    positionData = loadAccuratePositionData();
-    attitudeData = loadAccurateAttitudeData();
+    loadAccuratePositionData();
+    loadAccurateAttitudeData();
 
     cv::Mat matA0(10, 3, CV_32F, cv::Scalar::all(0));
     cv::Mat matB0(10, 1, CV_32F, cv::Scalar::all(-1));
@@ -1085,9 +1160,9 @@ int main(int argc, char** argv)
                     transformTobeMapped[5] += matX.at<float>(5, 0);
 
                     // TODO HACK: Hack in our pose info: trust the attitude 70% and the location 100%
-                    transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
-                    transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
-                    transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
+                    // transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
+                    // transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
+                    // transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
                     transformTobeMapped[3] = (exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
                     transformTobeMapped[4] = (exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
                     transformTobeMapped[5] = exactPosition[2];
