@@ -42,13 +42,13 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include<pcl/io/pcd_io.h>
+#include <pcl/io/pcd_io.h>
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
-#include <std_msgs/String>
+#include <std_msgs/String.h>
 
 typedef pcl::PointXYZI PointType;
 
@@ -124,11 +124,57 @@ float transformLastMapped[6] = {0};
 
 // WINGTRA
 std::string timeSyncString{};
+std::vector<double*> positionData;
+int positionDataIterator{0};
+Eigen::Vector3f exactPosition{};
+std::vector<double*> attitudeData;
+int attitudeDataIterator{0};
+Eigen::Vector3f exactAttitude{};
+
+// Load log position and interpolate based on timestamp
+void getAccuratePosition(const double time)
+{
+    for (int i = positionDataIterator; i < positionData.size() - 1; i++) {
+        if (positionData[i][0] < time) {
+            const double interpolation = (time - positionData[i][0])/(positionData[i+1][0] - positionData[i][0]);
+            for (int j = 1; j < 4; j++) {
+                exactPosition[j] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
+            }
+            positionDataIterator = i;
+            return;
+        }
+    }
+}
+
+std::vector<double*> loadAccuratePositionData()
+{
+    // TODO HACK: read CSV with position data
+}
+
+// Load log position and interpolate based on timestamp
+void getAccurateAttitude(const double time)
+{
+    for (int i = positionDataIterator; i < attitudeData.size() - 1; i++) {
+        if (attitudeData[i][0] < time) {
+            const double interpolation = (time - attitudeData[i][0])/(attitudeData[i+1][0] - attitudeData[i][0]);
+            for (int j = 1; j < 4; j++) {
+                exactAttitude[j] = attitudeData[i][j] * interpolation + (1 - interpolation) * attitudeData[i+1][j];
+            }
+            attitudeDataIterator = i;
+            return;
+        }
+    }
+}
+
+std::vector<double*> loadAccurateAttitudeData()
+{
+    // TODO HACK: read CSV with attitude data
+}
 
 void timeSyncHandler(const std_msgs::StringConstPtr& timeSync)
 {
-  std::cout << "TIME SYNC RECEIVED" << timeSync.data;
-  timeSyncString = timeSync.data;
+  std::cout << "TIME SYNC RECEIVED" << timeSync->data << std::endl;
+  timeSyncString = timeSync->data;
 }
 double rad2deg(double radians)
 {
@@ -378,14 +424,15 @@ void laserCloudSurfLastHandler(const sensor_msgs::PointCloud2ConstPtr& laserClou
 
 void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudFullRes2)
 {
-    std::cout << "Received point cloud " << laserCloudFullRes2->header.stamp.toSec();
+    std::cout << "Received point cloud " << laserCloudFullRes2->header.stamp.toSec() << std::endl;
     timeLaserCloudFullRes = laserCloudFullRes2->header.stamp.toSec();
+
+    getAccuratePosition(timeLaserCloudFullRes);
+    getAccurateAttitude(timeLaserCloudFullRes);
 
     laserCloudFullRes->clear();
     laserCloudFullResColor->clear();
     pcl::fromROSMsg(*laserCloudFullRes2, *laserCloudFullRes);
-
-    // TODO HACK: Read out exact location from CSV here and update static var
 
     newLaserCloudFullRes = true;
 }
@@ -430,6 +477,9 @@ int main(int argc, char** argv)
     std::vector<int> pointSearchInd;
     std::vector<float> pointSearchSqDis;
     PointType pointOri, pointSel, coeff;
+
+    positionData = loadAccuratePositionData();
+    attitudeData = loadAccurateAttitudeData();
 
     cv::Mat matA0(10, 3, CV_32F, cv::Scalar::all(0));
     cv::Mat matB0(10, 1, CV_32F, cv::Scalar::all(-1));
@@ -1027,13 +1077,20 @@ int main(int argc, char** argv)
                         matX = matP * matX2;
                     }
 
-                    // TODO HACK: Hack in our pose info somehow here
                     transformTobeMapped[0] += matX.at<float>(0, 0);
                     transformTobeMapped[1] += matX.at<float>(1, 0);
                     transformTobeMapped[2] += matX.at<float>(2, 0);
                     transformTobeMapped[3] += matX.at<float>(3, 0);
                     transformTobeMapped[4] += matX.at<float>(4, 0);
                     transformTobeMapped[5] += matX.at<float>(5, 0);
+
+                    // TODO HACK: Hack in our pose info: trust the attitude 70% and the location 100%
+                    transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
+                    transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
+                    transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
+                    transformTobeMapped[3] = (exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
+                    transformTobeMapped[4] = (exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
+                    transformTobeMapped[5] = exactPosition[2];
 
                     float deltaR = sqrt(
                                 pow(rad2deg(matX.at<float>(0, 0)), 2) +
@@ -1044,7 +1101,9 @@ int main(int argc, char** argv)
                                 pow(matX.at<float>(4, 0) * 100, 2) +
                                 pow(matX.at<float>(5, 0) * 100, 2));
 
-                    if (deltaR < 0.05 && deltaT < 0.05) {  // TODO HACK: @50m the 0.05° still result in 4.5cm. We should decrease this threshold for more accurate results
+                    std::cout << "Cost: " << deltaR << " and " << deltaT << std::endl;
+
+                    if (deltaR < 0.05) { //  && deltaT < 0.05  // TODO HACK: @50m the 0.05° still result in 4.5cm. We should decrease this threshold for more accurate results
                         break;
                     }
                 }
