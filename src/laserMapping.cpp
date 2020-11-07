@@ -132,6 +132,7 @@ std::vector<double*> attitudeData;
 int attitudeDataIterator{0};
 Eigen::Vector3f exactAttitude{0, 0, 0};
 double ppk_time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
+double point_cloud_time = -1.0;
 
 // Load log position and interpolate based on timestamp
 void getAccuratePosition(const double time)
@@ -505,6 +506,10 @@ void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloud
     getAccuratePosition(timeLaserCloudFullRes);
     getAccurateAttitude(timeLaserCloudFullRes);
 
+    if (point_cloud_time < 0) {
+        point_cloud_time = timeLaserCloudFullRes;
+    }
+
     laserCloudFullRes->clear();
     laserCloudFullResColor->clear();
     pcl::fromROSMsg(*laserCloudFullRes2, *laserCloudFullRes);
@@ -584,6 +589,11 @@ int main(int argc, char** argv)
         laserCloudSurfArray2[i].reset(new pcl::PointCloud<PointType>());
     }
 
+    // TODO HACK
+    transformTobeMapped[0] = 0.0;
+    transformTobeMapped[1] = 0.0;
+    transformTobeMapped[2] = 0.0;
+
 //------------------------------------------------------------------------------------------------------
     ros::Rate rate(100);
     bool status = ros::ok();
@@ -606,15 +616,15 @@ int main(int argc, char** argv)
             std::cout<<"DEBUG mapping start "<<std::endl;
 
             // TODO HACK: Hack in our pose info: trust the attitude 70% and the location 100%
-            if (timeLaserCloudFullRes < ppk_time_offset) {
-                std::cout << "Too early, discard " << timeLaserCloudFullRes << std::endl;
-                transformTobeMapped[0] = 0.0;
-                transformTobeMapped[1] = 0.0;
-                transformTobeMapped[2] = 0.0;
-                status = ros::ok();
-                rate.sleep();
-                break;
-            }
+//            if (timeLaserCloudFullRes < ppk_time_offset) {
+//                std::cout << "Too early, discard " << timeLaserCloudFullRes << std::endl;
+//                transformTobeMapped[0] = 0.0;
+//                transformTobeMapped[1] = 0.0;
+//                transformTobeMapped[2] = 0.0;
+//                status = ros::ok();
+//                rate.sleep();
+//                break;
+//            }
 
             // transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
             // transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
