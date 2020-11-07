@@ -131,14 +131,14 @@ Eigen::Vector3f exactPosition{0, 0, 0};
 std::vector<double*> attitudeData;
 int attitudeDataIterator{0};
 Eigen::Vector3f exactAttitude{0, 0, 0};
-double ppk_time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)  + 266.002
+double ppk_time_offset = 266.002; // 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
 
 // Load log position and interpolate based on timestamp
 void getAccuratePosition(const double time)
 {
     std::cout << "getAccuratePosition" << time << " " << positionDataIterator << " " << positionData[positionDataIterator][0] << std::endl;
     for (int i = positionDataIterator; i < positionData.size() - 1; i++) {
-        if (positionData[i][0] > time - ppk_time_offset) {
+        if (positionData[i][0] > time) {
             const double interpolation = (time - positionData[i][0])/(positionData[i+1][0] - positionData[i][0]);
             for (int j = 1; j < 4; j++) {
                 exactPosition[j-1] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
@@ -586,9 +586,11 @@ int main(int argc, char** argv)
     }
 
     // TODO HACK
+    /*
     transformTobeMapped[0] = 1.532;
     transformTobeMapped[1] = 0.036;
     transformTobeMapped[2] = -0.4455;
+    */
 
 //------------------------------------------------------------------------------------------------------
     ros::Rate rate(100);
@@ -625,9 +627,13 @@ int main(int argc, char** argv)
             // transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
             // transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
             // transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
-            transformTobeMapped[3] = deg2rad(exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
-            transformTobeMapped[4] = deg2rad(exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
-            transformTobeMapped[5] = exactPosition[2];
+            static bool on = false;
+            if (!on) {
+                on = true;
+            }
+            transformTobeMapped[3] = deg2rad(exactPosition[0] - 47.356511630519) * 6378100.0; // crude linearization around zurich
+            transformTobeMapped[4] = deg2rad(exactPosition[1] - 8.519412246883) * 6378100.0;  // crude linearization around zurich
+            transformTobeMapped[5] = 488.15102833 - exactPosition[2];
             std::cout << "POS: " << transformTobeMapped[3] << " " << transformTobeMapped[4] << " " << transformTobeMapped[5] << " exact pos " << exactPosition[0] << " " << exactPosition[1] << std::endl;
 
             PointType pointOnYAxis;
@@ -1195,7 +1201,7 @@ int main(int argc, char** argv)
 
                     std::cout << "Cost: " << deltaR << " and " << deltaT << std::endl;
 
-                    if (deltaR < 0.05) { //  && deltaT < 0.05  // TODO HACK: @50m the 0.05° still result in 4.5cm. We should decrease this threshold for more accurate results
+                    if (deltaR < 0.05 && deltaT < 0.05) {  // TODO HACK: @50m the 0.05° still result in 4.5cm. We should decrease this threshold for more accurate results
                         break;
                     }
                 }
