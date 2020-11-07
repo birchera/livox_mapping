@@ -131,13 +131,13 @@ Eigen::Vector3f exactPosition{0, 0, 0};
 std::vector<double*> attitudeData;
 int attitudeDataIterator{0};
 Eigen::Vector3f exactAttitude{0, 0, 0};
+double ppk_time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
 
 // Load log position and interpolate based on timestamp
 void getAccuratePosition(const double time)
 {
-    const double time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
     for (int i = positionDataIterator; i < positionData.size() - 1; i++) {
-        if (positionData[i][0] < time - time_offset) {
+        if (positionData[i][0] < time - ppk_time_offset) {
             const double interpolation = (time - positionData[i][0])/(positionData[i+1][0] - positionData[i][0]);
             for (int j = 1; j < 4; j++) {
                 exactPosition[j-1] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
@@ -604,6 +604,24 @@ int main(int argc, char** argv)
 
             //transformAssociateToMap();
             std::cout<<"DEBUG mapping start "<<std::endl;
+
+            // TODO HACK: Hack in our pose info: trust the attitude 70% and the location 100%
+            if (timeLaserCloudFullRes < ppk_time_offset) {
+                std::cout << "Too early, discard " << timeLaserCloudFullRes << std::endl;
+                transformTobeMapped[0] = 0.0;
+                transformTobeMapped[1] = 0.0;
+                transformTobeMapped[2] = 0.0;
+                status = ros::ok();
+                rate.sleep();
+                break;
+            }
+
+            // transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
+            // transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
+            // transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
+            transformTobeMapped[3] = deg2rad(exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
+            transformTobeMapped[4] = deg2rad(exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
+            transformTobeMapped[5] = exactPosition[2];
 
             PointType pointOnYAxis;
             pointOnYAxis.x = 0.0;
@@ -1158,14 +1176,6 @@ int main(int argc, char** argv)
                     transformTobeMapped[3] += matX.at<float>(3, 0);
                     transformTobeMapped[4] += matX.at<float>(4, 0);
                     transformTobeMapped[5] += matX.at<float>(5, 0);
-
-                    // TODO HACK: Hack in our pose info: trust the attitude 70% and the location 100%
-                    // transformTobeMapped[0] = transformTobeMapped[0] * 0.3 + exactAttitude[0] * 0.7;
-                    // transformTobeMapped[1] = transformTobeMapped[1] * 0.3 + exactAttitude[1] * 0.7;
-                    // transformTobeMapped[2] = transformTobeMapped[2] * 0.3 + exactAttitude[2] * 0.7;
-                    transformTobeMapped[3] = (exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
-                    transformTobeMapped[4] = (exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
-                    transformTobeMapped[5] = exactPosition[2];
 
                     float deltaR = sqrt(
                                 pow(rad2deg(matX.at<float>(0, 0)), 2) +
