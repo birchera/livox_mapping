@@ -131,14 +131,14 @@ Eigen::Vector3f exactPosition{0, 0, 0};
 std::vector<double*> attitudeData;
 int attitudeDataIterator{0};
 Eigen::Vector3f exactAttitude{0, 0, 0};
-double ppk_time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)
-double point_cloud_time = -1.0;
+double ppk_time_offset = 1604691247.75;  // Hardcode value from timesync message (outdoor session 2)  + 266.002
 
 // Load log position and interpolate based on timestamp
 void getAccuratePosition(const double time)
 {
+    std::cout << "getAccuratePosition" << time << " " << positionDataIterator << " " << positionData[positionDataIterator][0] << std::endl;
     for (int i = positionDataIterator; i < positionData.size() - 1; i++) {
-        if (positionData[i][0] < time - ppk_time_offset) {
+        if (positionData[i][0] > time - ppk_time_offset) {
             const double interpolation = (time - positionData[i][0])/(positionData[i+1][0] - positionData[i][0]);
             for (int j = 1; j < 4; j++) {
                 exactPosition[j-1] = positionData[i][j] * interpolation + (1 - interpolation) * positionData[i+1][j];
@@ -249,7 +249,7 @@ void loadAccurateAttitudeData()
 
 void timeSyncHandler(const std_msgs::StringConstPtr& timeSync)
 {
-  std::cout << "TIME SYNC RECEIVED" << timeSync->data << std::endl;
+  std::cout << "TIME SYNC RECEIVED" << timeSync->data << " bag time " << timeLaserCloudFullRes << std::endl;
   timeSyncString = timeSync->data;  
 }
 double rad2deg(double radians)
@@ -506,10 +506,6 @@ void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloud
     getAccuratePosition(timeLaserCloudFullRes);
     getAccurateAttitude(timeLaserCloudFullRes);
 
-    if (point_cloud_time < 0) {
-        point_cloud_time = timeLaserCloudFullRes;
-    }
-
     laserCloudFullRes->clear();
     laserCloudFullResColor->clear();
     pcl::fromROSMsg(*laserCloudFullRes2, *laserCloudFullRes);
@@ -590,9 +586,9 @@ int main(int argc, char** argv)
     }
 
     // TODO HACK
-    transformTobeMapped[0] = 0.0;
-    transformTobeMapped[1] = 0.0;
-    transformTobeMapped[2] = 0.0;
+    transformTobeMapped[0] = 1.532;
+    transformTobeMapped[1] = 0.036;
+    transformTobeMapped[2] = -0.4455;
 
 //------------------------------------------------------------------------------------------------------
     ros::Rate rate(100);
@@ -632,6 +628,7 @@ int main(int argc, char** argv)
             transformTobeMapped[3] = deg2rad(exactPosition[0] - 47.354698) * 6378100.0; // crude linearization around zurich
             transformTobeMapped[4] = deg2rad(exactPosition[1] - 8.517781) * 6378100.0;  // crude linearization around zurich
             transformTobeMapped[5] = exactPosition[2];
+            std::cout << "POS: " << transformTobeMapped[3] << " " << transformTobeMapped[4] << " " << transformTobeMapped[5] << " exact pos " << exactPosition[0] << " " << exactPosition[1] << std::endl;
 
             PointType pointOnYAxis;
             pointOnYAxis.x = 0.0;
